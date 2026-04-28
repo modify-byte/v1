@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const Favourite = require('../models/Favourite');
-const { verifyToken } = require('../middleware/auth');
+const { verifySelfOrAdmin } = require('../middleware/auth');
 
 // POST /favourites/get/:userId
-router.post('/get/:userId', verifyToken, async (req, res) => {
+router.post('/get/:userId', verifySelfOrAdmin, async (req, res) => {
   try {
     const fav = await Favourite.findOne({ userId: req.params.userId })
       .populate('products');
@@ -15,7 +15,7 @@ router.post('/get/:userId', verifyToken, async (req, res) => {
 });
 
 // POST /favourites/add/:userId/:productId
-router.post('/add/:userId/:productId', verifyToken, async (req, res) => {
+router.post('/add/:userId/:productId', verifySelfOrAdmin, async (req, res) => {
   try {
     let fav = await Favourite.findOne({ userId: req.params.userId });
     if (!fav) fav = new Favourite({ userId: req.params.userId, products: [] });
@@ -33,7 +33,7 @@ router.post('/add/:userId/:productId', verifyToken, async (req, res) => {
 });
 
 // POST /favourites/remove/:userId/:productId
-router.post('/remove/:userId/:productId', verifyToken, async (req, res) => {
+router.post('/remove/:userId/:productId', verifySelfOrAdmin, async (req, res) => {
   try {
     const fav = await Favourite.findOne({ userId: req.params.userId });
     if (fav) {

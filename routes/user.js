@@ -2,10 +2,10 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
-const { verifyToken } = require('../middleware/auth');
+const { verifySelfOrAdmin } = require('../middleware/auth');
 
 // POST /user/profile/:userId
-router.post('/profile/:userId', verifyToken, async (req, res) => {
+router.post('/profile/:userId', verifySelfOrAdmin, async (req, res) => {
   try {
     const user = await User.findById(req.params.userId)
       .select('-password -resetOTP -resetOTPExpiry');
@@ -17,7 +17,7 @@ router.post('/profile/:userId', verifyToken, async (req, res) => {
 });
 
 // POST /user/profile/update/:userId
-router.post('/profile/update/:userId', verifyToken, async (req, res) => {
+router.post('/profile/update/:userId', verifySelfOrAdmin, async (req, res) => {
   try {
     const { password, role, ...updateData } = req.body;
     const user = await User.findByIdAndUpdate(
@@ -32,7 +32,7 @@ router.post('/profile/update/:userId', verifyToken, async (req, res) => {
 });
 
 // POST /user/change-password/:userId
-router.post('/change-password/:userId', verifyToken, async (req, res) => {
+router.post('/change-password/:userId', verifySelfOrAdmin, async (req, res) => {
   try {
     const { oldPassword, newPassword } = req.body;
     const user = await User.findById(req.params.userId);
@@ -51,7 +51,7 @@ router.post('/change-password/:userId', verifyToken, async (req, res) => {
 });
 
 // POST /user/delete/:userId
-router.post('/delete/:userId', verifyToken, async (req, res) => {
+router.post('/delete/:userId', verifySelfOrAdmin, async (req, res) => {
   try {
     await User.findByIdAndDelete(req.params.userId);
     res.json({ message: "Account deleted successfully!" });

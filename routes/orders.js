@@ -2,23 +2,41 @@ const express = require('express');
 const router = express.Router();
 const Order = require('../models/Order');
 const Cart = require('../models/Cart');
-const Notification = require('../models/Notification');
 const { verifyToken } = require('../middleware/auth');
+const { createNotification } = require('../utils/notification');
 
 // POST /orders/place
 router.post('/place', verifyToken, async (req, res) => {
   try {
-    const order = new Order(req.body);
+    if (req.user.id !== req.body.userId && req.user.role !== 'admin') {
+      return res.status(403).json({ message: "You can only place orders for your own account." });
+    }
+
+    const paymentMethod = String(req.body.paymentMethod || 'online').toLowerCase();
+    if (!['online', 'cod'].includes(paymentMethod)) {
+      return res.status(400).json({ message: "Invalid payment method. Use 'online' or 'cod'." });
+    }
+
+    const orderPayload = { ...req.body, paymentMethod };
+    if (paymentMethod === 'cod') {
+      orderPayload.status = 'placed';
+      orderPayload.paymentId = '';
+    }
+
+    const order = new Order(orderPayload);
     await order.save();
 
     // Clear cart after placing order
     await Cart.findOneAndDelete({ userId: req.body.userId });
 
     // Auto notification
-    await Notification.create({
+    await createNotification({
       userId: req.body.userId,
+      type: 'order_update',
       title: "Order Placed Successfully!",
-      message: `Your order has been placed. Order ID: ${order._id}. Total: ₹${order.totalAmount}`
+      message: `Your order has been placed (${paymentMethod.toUpperCase()}). Order ID: ${order._id}. Total: ₹${order.totalAmount}`,
+      sourceId: String(order._id),
+      dedupeScope: `order-placed-${order._id}`
     });
 
     res.status(201).json({ message: "Order placed successfully!", order });
@@ -30,6 +48,10 @@ router.post('/place', verifyToken, async (req, res) => {
 // POST /orders/get/:userId
 router.post('/get/:userId', verifyToken, async (req, res) => {
   try {
+    if (req.user.id !== req.params.userId && req.user.role !== 'admin') {
+      return res.status(403).json({ message: "You can only access your own orders." });
+    }
+
     const orders = await Order.find({ userId: req.params.userId })
       .populate('products.productId')
       .sort({ createdAt: -1 });
@@ -42,7 +64,10 @@ router.post('/get/:userId', verifyToken, async (req, res) => {
 // POST /orders/detail/:orderId
 router.post('/detail/:orderId', verifyToken, async (req, res) => {
   try {
-    const order = await Order.findById(req.params.orderId)
+    const filter = { _id: req.params.orderId };
+    if (req.user.role !== 'admin') filter.userId = req.user.id;
+
+    const order = await Order.findOne(filter)
       .populate('products.productId');
     if (!order) return res.status(404).json({ message: "Order not found." });
     res.json(order);
@@ -54,17 +79,28 @@ router.post('/detail/:orderId', verifyToken, async (req, res) => {
 // POST /orders/cancel/:orderId
 router.post('/cancel/:orderId', verifyToken, async (req, res) => {
   try {
-    const order = await Order.findByIdAndUpdate(
-      req.params.orderId,
-      { status: "cancelled" },
-      { new: true }
-    );
+    const filter = { _id: req.params.orderId };
+    if (req.user.role !== 'admin') filter.userId = req.user.id;
+    const order = await Order.findOne(filter);
     if (!order) return res.status(404).json({ message: "Order not found." });
+    if (order.status === "delivered" || order.status === "cancelled") {
+      return res.status(400).json({
+        message: `Order is already ${order.status}. Status cannot be changed now.`
+      });
+    }
 
-    await Notification.create({
+    const cancelReason = String(req.body.reason || '').trim();
+    order.status = "cancelled";
+    order.cancelReason = cancelReason;
+    await order.save();
+
+    await createNotification({
       userId: order.userId,
+      type: 'order_update',
       title: "Order Cancelled",
-      message: `Your order has been cancelled. Order ID: ${order._id}`
+      message: `Your order has been cancelled. Order ID: ${order._id}. Please place a new order if needed.`,
+      sourceId: String(order._id),
+      dedupeScope: `order-cancelled-${order._id}`
     });
 
     res.json({ message: "Order cancelled successfully!", order });
@@ -76,7 +112,9 @@ router.post('/cancel/:orderId', verifyToken, async (req, res) => {
 // POST /orders/track/:orderId
 router.post('/track/:orderId', verifyToken, async (req, res) => {
   try {
-    const order = await Order.findById(req.params.orderId);
+    const filter = { _id: req.params.orderId };
+    if (req.user.role !== 'admin') filter.userId = req.user.id;
+    const order = await Order.findOne(filter);
     if (!order) return res.status(404).json({ message: "Order not found." });
 
     const statusMessages = {

@@ -1,10 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const sendEmail = require('../config/email');
 const { verifyToken } = require('../middleware/auth');
+
+const hashOTP = (otp) => crypto.createHash('sha256').update(String(otp)).digest('hex');
+const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
 // POST /auth/signup
 router.post('/signup', async (req, res) => {
@@ -13,12 +17,30 @@ router.post('/signup', async (req, res) => {
     if (!name || !email || !password)
       return res.status(400).json({ message: "Name, email and password are required." });
 
-    const existing = await User.findOne({ email });
-    if (existing)
-      return res.status(400).json({ message: "Email is already registered." });
+    const normalizedName = String(name).trim();
+    const normalizedEmail = String(email).trim().toLowerCase();
+    if (!normalizedName)
+      return res.status(400).json({ message: "User name is required." });
+    if (!isValidEmail(normalizedEmail))
+      return res.status(400).json({ message: "Please enter a valid email address." });
+
+    const existingByEmail = await User.findOne({ email: normalizedEmail });
+    const existingByName = await User.findOne({
+      name: { $regex: new RegExp(`^${normalizedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+    });
+
+    if (existingByEmail && existingByName) {
+      return res.status(400).json({ message: "Email and user name already exist." });
+    }
+    if (existingByEmail) {
+      return res.status(400).json({ message: "Email already exists." });
+    }
+    if (existingByName) {
+      return res.status(400).json({ message: "User name already exists." });
+    }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = new User({ name, email, password: hashedPassword });
+    const user = new User({ name: normalizedName, email: normalizedEmail, password: hashedPassword });
     await user.save();
 
     const token = jwt.sign(
@@ -44,13 +66,18 @@ router.post('/login', async (req, res) => {
     if (!email || !password)
       return res.status(400).json({ message: "Email and password are required." });
 
-    const user = await User.findOne({ email });
+    const normalizedEmail = String(email).trim().toLowerCase();
+    if (!isValidEmail(normalizedEmail)) {
+      return res.status(400).json({ message: "Please enter a valid email address." });
+    }
+
+    const user = await User.findOne({ email: normalizedEmail });
     if (!user)
-      return res.status(400).json({ message: "Invalid email or password." });
+      return res.status(400).json({ message: "Email is not registered." });
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch)
-      return res.status(400).json({ message: "Invalid email or password." });
+      return res.status(400).json({ message: "Invalid password." });
 
     const token = jwt.sign(
       { id: user._id, email: user.email, role: user.role },
@@ -84,7 +111,7 @@ router.post('/forgot-password', async (req, res) => {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const expiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    user.resetOTP = otp;
+    user.resetOTP = hashOTP(otp);
     user.resetOTPExpiry = expiry;
     await user.save();
 
@@ -115,7 +142,7 @@ router.post('/verify-otp', async (req, res) => {
     const user = await User.findOne({ email });
     if (!user)
       return res.status(404).json({ message: "User not found." });
-    if (user.resetOTP !== otp)
+    if (user.resetOTP !== hashOTP(otp))
       return res.status(400).json({ message: "Invalid OTP." });
     if (user.resetOTPExpiry < new Date())
       return res.status(400).json({ message: "OTP has expired. Please request a new one." });
@@ -133,7 +160,7 @@ router.post('/reset-password', async (req, res) => {
     const user = await User.findOne({ email });
     if (!user)
       return res.status(404).json({ message: "User not found." });
-    if (user.resetOTP !== otp)
+    if (user.resetOTP !== hashOTP(otp))
       return res.status(400).json({ message: "Invalid OTP." });
     if (user.resetOTPExpiry < new Date())
       return res.status(400).json({ message: "OTP has expired. Please request a new one." });

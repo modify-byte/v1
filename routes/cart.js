@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const Cart = require('../models/Cart');
-const { verifyToken } = require('../middleware/auth');
+const { verifySelfOrAdmin } = require('../middleware/auth');
 
 // POST /cart/get/:userId
-router.post('/get/:userId', verifyToken, async (req, res) => {
+router.post('/get/:userId', verifySelfOrAdmin, async (req, res) => {
   try {
     const cart = await Cart.findOne({ userId: req.params.userId })
       .populate('products.productId');
@@ -15,7 +15,7 @@ router.post('/get/:userId', verifyToken, async (req, res) => {
 });
 
 // POST /cart/add/:userId/:productId
-router.post('/add/:userId/:productId', verifyToken, async (req, res) => {
+router.post('/add/:userId/:productId', verifySelfOrAdmin, async (req, res) => {
   try {
     let cart = await Cart.findOne({ userId: req.params.userId });
     if (!cart) cart = new Cart({ userId: req.params.userId, products: [] });
@@ -36,7 +36,7 @@ router.post('/add/:userId/:productId', verifyToken, async (req, res) => {
 });
 
 // POST /cart/update/:userId/:productId
-router.post('/update/:userId/:productId', verifyToken, async (req, res) => {
+router.post('/update/:userId/:productId', verifySelfOrAdmin, async (req, res) => {
   try {
     const cart = await Cart.findOne({ userId: req.params.userId });
     if (cart) {
@@ -53,7 +53,7 @@ router.post('/update/:userId/:productId', verifyToken, async (req, res) => {
 });
 
 // POST /cart/remove/:userId/:productId
-router.post('/remove/:userId/:productId', verifyToken, async (req, res) => {
+router.post('/remove/:userId/:productId', verifySelfOrAdmin, async (req, res) => {
   try {
     const cart = await Cart.findOne({ userId: req.params.userId });
     if (cart) {
@@ -69,7 +69,7 @@ router.post('/remove/:userId/:productId', verifyToken, async (req, res) => {
 });
 
 // POST /cart/clear/:userId
-router.post('/clear/:userId', verifyToken, async (req, res) => {
+router.post('/clear/:userId', verifySelfOrAdmin, async (req, res) => {
   try {
     await Cart.findOneAndDelete({ userId: req.params.userId });
     res.json({ message: "Cart cleared successfully!" });

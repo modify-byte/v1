@@ -8,11 +8,17 @@ const orderSchema = new mongoose.Schema({
     price:     Number
   }],
   totalAmount: { type: Number, required: true },
+  paymentMethod: {
+    type: String,
+    enum: ["online", "cod"],
+    default: "online"
+  },
   status: {
     type: String,
     default: "placed",
     enum: ["placed", "paid", "processing", "packed", "shipped", "out_for_delivery", "delivered", "cancelled"]
   },
+  cancelReason: { type: String, default: "" },
   address:   { type: String, required: true },
   paymentId: { type: String, default: "" }
 }, { timestamps: true });

@@ -1,18 +1,33 @@
 const express = require('express');
 const router = express.Router();
 const Order = require('../models/Order');
-const Notification = require('../models/Notification');
 const { verifyToken } = require('../middleware/auth');
+const { createNotification } = require('../utils/notification');
 
 // POST /payment/create-order
 router.post('/create-order', verifyToken, async (req, res) => {
   try {
-    const { amount, userId } = req.body;
+    const { amount, userId, paymentMethod = 'online' } = req.body;
+    const normalizedMethod = String(paymentMethod).toLowerCase();
+    if (!['online', 'cod'].includes(normalizedMethod)) {
+      return res.status(400).json({ message: "Invalid payment method. Use 'online' or 'cod'." });
+    }
+
+    // COD does not need payment gateway order creation.
+    if (normalizedMethod === 'cod') {
+      return res.json({
+        message: "COD selected. No online payment order is required.",
+        paymentMethod: "cod",
+        userId
+      });
+    }
+
     res.json({
       message: "Payment order created!",
       orderId: "pay_" + Date.now(),
       amount,
       currency: "INR",
+      paymentMethod: "online",
       userId
     });
   } catch (err) {
@@ -26,15 +41,18 @@ router.post('/verify', verifyToken, async (req, res) => {
     const { paymentId, orderId } = req.body;
     const order = await Order.findByIdAndUpdate(
       orderId,
-      { paymentId, status: "paid" },
+      { paymentId, status: "paid", paymentMethod: "online" },
       { new: true }
     );
     if (!order) return res.status(404).json({ message: "Order not found." });
 
-    await Notification.create({
+    await createNotification({
       userId: order.userId,
+      type: 'payment',
       title: "Payment Successful!",
-      message: `Payment confirmed. Payment ID: ${paymentId}`
+      message: `Payment confirmed. Payment ID: ${paymentId}`,
+      sourceId: String(order._id),
+      dedupeScope: `payment-success-${order._id}`
     });
 
     res.json({ message: "Payment verified successfully!", paymentId });
@@ -46,6 +64,10 @@ router.post('/verify', verifyToken, async (req, res) => {
 // POST /payment/history/:userId
 router.post('/history/:userId', verifyToken, async (req, res) => {
   try {
+    if (req.user.id !== req.params.userId && req.user.role !== 'admin') {
+      return res.status(403).json({ message: "You can only access your own payment history." });
+    }
+
     const orders = await Order.find({
       userId: req.params.userId,
       paymentId: { $ne: "" }

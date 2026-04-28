@@ -36,6 +36,76 @@ router.post('/search', async (req, res) => {
   }
 });
 
+// POST /products/filter
+router.post('/filter', async (req, res) => {
+  try {
+    const {
+      category,
+      minPrice,
+      maxPrice,
+      minRating,
+      inStock,
+      sortBy = 'newest',
+      page = 1,
+      limit = 20
+    } = req.body;
+
+    const query = {};
+    if (category) query.category = category;
+
+    if (minPrice !== undefined || maxPrice !== undefined) {
+      query.price = {};
+      if (minPrice !== undefined) query.price.$gte = Number(minPrice);
+      if (maxPrice !== undefined) query.price.$lte = Number(maxPrice);
+    }
+
+    if (minRating !== undefined) query.rating = { $gte: Number(minRating) };
+    if (inStock === true) query.stock = { $gt: 0 };
+
+    const sortMap = {
+      newest: { createdAt: -1 },
+      oldest: { createdAt: 1 },
+      price_low_to_high: { price: 1 },
+      price_high_to_low: { price: -1 },
+      rating_high_to_low: { rating: -1 }
+    };
+    const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 100);
+    const safePage = Math.max(Number(page) || 1, 1);
+    const skip = (safePage - 1) * safeLimit;
+
+    const [products, total] = await Promise.all([
+      Product.find(query)
+        .sort(sortMap[sortBy] || sortMap.newest)
+        .skip(skip)
+        .limit(safeLimit),
+      Product.countDocuments(query)
+    ]);
+
+    res.json({
+      total,
+      page: safePage,
+      limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit),
+      products
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /products/recent
+router.post('/recent', async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.body.limit) || 10, 1), 50);
+    const products = await Product.find()
+      .sort({ createdAt: -1 })
+      .limit(limit);
+    res.json(products);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // POST /products/category/:name
 router.post('/category/:name', async (req, res) => {
   try {
@@ -77,7 +147,10 @@ router.post('/delete/:id', verifyAdmin, async (req, res) => {
     res.json({ message: "Product deleted successfully!" });
   } catch (err) {
     res.status(500).json({ message: err.message });
+  
   }
+
+
 });
 
 module.exports = router;

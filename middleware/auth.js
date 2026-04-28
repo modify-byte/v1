@@ -25,4 +25,14 @@ const verifyAdmin = (req, res, next) => {
   });
 };
 
-module.exports = { verifyToken, verifyAdmin };
+const verifySelfOrAdmin = (req, res, next) => {
+  verifyToken(req, res, () => {
+    const routeUserId = req.params.userId || req.body.userId;
+    if (!routeUserId) return res.status(400).json({ message: "User id is required." });
+
+    if (req.user.role === 'admin' || req.user.id === routeUserId) return next();
+    return res.status(403).json({ message: "You can only access your own resources." });
+  });
+};
+
+module.exports = { verifyToken, verifyAdmin, verifySelfOrAdmin };
